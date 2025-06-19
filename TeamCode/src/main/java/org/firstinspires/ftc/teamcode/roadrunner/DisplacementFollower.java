@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.roadrunner;
 
 import static com.acmerobotics.roadrunner.geometry.Math.range;
 import static com.acmerobotics.roadrunner.profiles.Profiles.forwardProfile;
@@ -16,53 +16,47 @@ import com.acmerobotics.roadrunner.geometry.Twist2d;
 import com.acmerobotics.roadrunner.geometry.Vector2d;
 import com.acmerobotics.roadrunner.paths.PosePath;
 import com.acmerobotics.roadrunner.profiles.AccelConstraint;
-import com.acmerobotics.roadrunner.profiles.TimeProfile;
 import com.acmerobotics.roadrunner.profiles.VelConstraint;
-import com.acmerobotics.roadrunner.trajectories.TimeTrajectory;
-import com.acmerobotics.roadrunner.trajectories.Trajectories;
+import com.acmerobotics.roadrunner.trajectories.DisplacementTrajectory;
 import com.acmerobotics.roadrunner.trajectories.Trajectory;
-import com.qualcomm.robotcore.util.ElapsedTime;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class TimeFollower implements Follower {
-    private final TimeTrajectory trajectory;
+public class DisplacementFollower implements Follower {
+    private final DisplacementTrajectory trajectory;
     private final Drive drive;
 
-    public TimeFollower(Trajectory<?> trajectory, Drive drive) {
-        this.trajectory = trajectory.wrtTime();
+    public DisplacementFollower(Trajectory<?> trajectory, Drive drive) {
+        this.trajectory = trajectory.wrtDisp();
         this.drive = drive;
         this.currentTarget = trajectory.get(0.0).value();
-        this.duration = this.trajectory.duration;
-        this.timer = new ElapsedTime();
     }
 
-    public TimeFollower(
+    public DisplacementFollower(
             PosePath path,
             Drive drive,
             VelConstraint velConstraintOverride,
             AccelConstraint accelConstraintOverride) {
-        this(new TimeTrajectory(
+        this(new DisplacementTrajectory(
                         path,
-                        new TimeProfile(
-                                forwardProfile(
+                        forwardProfile(
                                 drive.getFollowerParams().profileParams,
                                 path,
                                 0.0,
                                 velConstraintOverride,
                                 accelConstraintOverride
-                        ))
+                        )
                 ),
                 drive);
     }
-    public TimeFollower(PosePath path, Drive drive) {
+    public DisplacementFollower(PosePath path, Drive drive) {
         this(path, drive, drive.getDefaultVelConstraint(), drive.getDefaultAccelConstraint());
     }
-    public TimeFollower(PosePath path, Drive drive, VelConstraint velConstraint) {
+    public DisplacementFollower(PosePath path, Drive drive, VelConstraint velConstraint) {
         this(path, drive, velConstraint, drive.getDefaultAccelConstraint());
     }
-    public TimeFollower(PosePath path, Drive drive, AccelConstraint accelConstraint) {
+    public DisplacementFollower(PosePath path, Drive drive, AccelConstraint accelConstraint) {
         this(path, drive, drive.getDefaultVelConstraint(), accelConstraint);
     }
 
@@ -70,9 +64,7 @@ public class TimeFollower implements Follower {
     private PoseVelocity2dDual<Time> lastCommand; // = PoseVelocity2dDual.zero();
 
     private boolean isDone = false;
-    private final ElapsedTime timer;
-    private final double duration;
-    private boolean started = false;
+    private double ds = 0.0;
 
 
     @NonNull
@@ -107,23 +99,18 @@ public class TimeFollower implements Follower {
     }
 
     public PoseVelocity2dDual<Time> getDriveCommand() {
-        if (!started) {
-            timer.reset();
-            started = true;
-        }
-
-        double dt = timer.seconds();
-
         PoseVelocity2d robotVel = drive.getLocalizer().update();
         Pose2d robotPose = drive.getLocalizer().getPose();
 
-        Twist2d error = Trajectories.getEndWrtTime(trajectory).value().minus(robotPose);
-        if (dt >= duration || (error.line.norm() < 1.0 && error.angle < Math.toDegrees(5.0))) {
+        ds = trajectory.project(robotPose.position, ds);
+
+        Twist2d error = trajectory.get(trajectory.length()).value().minus(robotPose);
+        if (ds >= trajectory.length() || (error.line.norm() < 1.0 && error.angle < Math.toDegrees(5.0))) {
             isDone = true;
             return PoseVelocity2dDual.zero();
         }
 
-        Pose2dDual<Time> target = trajectory.get(dt);
+        Pose2dDual<Time> target = trajectory.get(ds);
         currentTarget = target.value();
 
         return drive.getController().compute(
